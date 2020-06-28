@@ -23,6 +23,11 @@ type Findings struct {
 	CPUsys       int64 `json:"cpusys_in_usec"`
 }
 
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 var icmd, pcmd *exec.Cmd
 var idlef, peakf chan Findings
 
@@ -37,12 +42,20 @@ func main() {
 	target := flag.String("target", "", "The filesystem path of the binary or script to assess")
 	idlest := flag.Int("sampletime-idle", 2, "[OPTIONAL] The time in seconds to perform idle resource usage assessment")
 	peakst := flag.Int("sampletime-peak", 10, "[OPTIONAL] The time in seconds to perform peak resource usage assessment")
+	apibaseurl := flag.String("api-baseurl", "http://127.0.0.1", "[OPTIONAL] The base URL component of the HTTP API to use for peak resource usage assessment")
 	apipath := flag.String("api-path", "", "[OPTIONAL] The URL path component of the HTTP API to use for peak resource usage assessment")
 	apiport := flag.String("api-port", "", "[OPTIONAL] The TCP port of the HTTP API to use for peak resource usage assessment")
 	peakdelay := flag.Int("delay-peak", 10, "[OPTIONAL] The time in milliseconds to wait between two consecutive HTTP GET requests for peak resource usage assessment")
 	exportfile := flag.String("export-findings", "", "[OPTIONAL] The filesystem path to export findings to; if not provided the results will be written to stdout")
 	outputformat := flag.String("output", "json", "[OPTIONAL] The output format, valid values are 'json' and 'openmetrics'")
+	showversion := flag.Bool("version", false, "Print the version of rsg and exit")
 	flag.Parse()
+
+	if *showversion {
+		fmt.Printf("%v, commit %v, built at %v\n", version, commit, date)
+		os.Exit(0)
+	}
+
 	if len(os.Args) == 0 || *target == "" {
 		fmt.Printf("Need at least the target program to proceed\n\n")
 		flag.Usage()
@@ -80,7 +93,7 @@ func main() {
 
 	// Perform peak state assessment:
 	if *apipath != "" && *apiport != "" {
-		go assesspeak(*apiport, *apipath, peakhammerpause)
+		go assesspeak(*apibaseurl, *apiport, *apipath, peakhammerpause)
 		<-time.After(psampletime)
 		log.Printf("Peak state assessment of %v completed\n", *target)
 		if pcmd.Process != nil {
@@ -116,10 +129,10 @@ func assessidle() {
 
 // assesspeak performs the peak state resource usage assessment, that is,
 // the memory and CPU usage of the process with external traffic applied
-func assesspeak(apiport, apipath string, peakhammerpause time.Duration) {
+func assesspeak(apibaseurl, apiport, apipath string, peakhammerpause time.Duration) {
 	log.Printf("Launching %v for peak state resource usage assessment", pcmd.Path)
-	log.Printf("Trying to determine peak state resource usage using 127.0.0.1:%v%v", apiport, apipath)
-	go stress(apiport, apipath, peakhammerpause)
+	log.Printf("Trying to determine peak state resource usage using %v:%v%v", apibaseurl, apiport, apipath)
+	go stress(apibaseurl, apiport, apipath, peakhammerpause)
 	pcmd.Run()
 	f := Findings{}
 	if pcmd.ProcessState != nil {
@@ -130,11 +143,11 @@ func assesspeak(apiport, apipath string, peakhammerpause time.Duration) {
 	peakf <- f
 }
 
-// stress performs an HTTP GET stress test against the port/path provided
-func stress(apiport, apipath string, peakhammerpause time.Duration) {
+// stress performs an HTTP GET stress test against the base URL/port/path provided
+func stress(apibaseurl, apiport, apipath string, peakhammerpause time.Duration) {
 	time.Sleep(1 * time.Second)
-	ep := fmt.Sprintf("http://127.0.0.1:%v%v", apiport, apipath)
-	log.Printf("Starting to hammer the endpoint %v every %v", ep, peakhammerpause)
+	ep := fmt.Sprintf("%v:%v%v", apibaseurl, apiport, apipath)
+	log.Printf("Starting to hammer %v every %v", ep, peakhammerpause)
 	for {
 		_, err := http.Get(ep)
 		if err != nil {

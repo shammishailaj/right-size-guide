@@ -10,13 +10,12 @@ builds:
     - darwin
     goarch:
     - amd64
-    - "386"
+    - arm
+    - arm64
     env:
       - CGO_ENABLED=0
       - GO111MODULE=on
     main: .
-    ldflags: -s -w
-      -X github.com/mhausenblas/right-size-guide/version.version=
 archives:
   - id: right-size-guide
     builds:
